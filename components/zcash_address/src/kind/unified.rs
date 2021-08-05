@@ -8,6 +8,7 @@ use std::io::Write;
 use zcash_encoding::CompactSize;
 
 pub(crate) mod address;
+pub(crate) mod ivk;
 
 pub(crate) use address::Address;
 
