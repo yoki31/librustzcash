@@ -2,6 +2,7 @@ use std::{convert::TryInto, error::Error, fmt, str::FromStr};
 
 use bech32::{self, FromBase32, ToBase32, Variant};
 
+use crate::kind::unified::{Address, Unified};
 use crate::{kind::*, AddressKind, Network, ZcashAddress};
 
 /// An error while attempting to parse a string as a Zcash address.
@@ -61,8 +62,7 @@ impl FromStr for ZcashAddress {
                     }
                 };
 
-                return (hrp.as_str(), &data[..])
-                    .try_into()
+                return Address::from_bytes(hrp.as_str(), &data[..])
                     .map(AddressKind::Unified)
                     .map_err(|_| ParseError::InvalidEncoding)
                     .map(|kind| ZcashAddress { net, kind });
@@ -180,7 +180,7 @@ impl fmt::Display for ZcashAddress {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kind::unified;
+    use crate::kind::unified::{self, address::Receiver};
 
     fn encoding(encoded: &str, decoded: ZcashAddress) {
         assert_eq!(decoded.to_string(), encoded);
@@ -230,21 +230,21 @@ mod tests {
             "u1qpatys4zruk99pg59gcscrt7y6akvl9vrhcfyhm9yxvxz7h87q6n8cgrzzpe9zru68uq39uhmlpp5uefxu0su5uqyqfe5zp3tycn0ecl",
             ZcashAddress {
                 net: Network::Main,
-                kind: AddressKind::Unified(unified::Address(vec![unified::Receiver::Sapling([0; 43])])),
+                kind: AddressKind::Unified(unified::Address(vec![Receiver::Sapling([0; 43])])),
             },
         );
         encoding(
             "utest10c5kutapazdnf8ztl3pu43nkfsjx89fy3uuff8tsmxm6s86j37pe7uz94z5jhkl49pqe8yz75rlsaygexk6jpaxwx0esjr8wm5ut7d5s",
             ZcashAddress {
                 net: Network::Test,
-                kind: AddressKind::Unified(unified::Address(vec![unified::Receiver::Sapling([0; 43])])),
+                kind: AddressKind::Unified(unified::Address(vec![Receiver::Sapling([0; 43])])),
             },
         );
         encoding(
             "uregtest15xk7vj4grjkay6mnfl93dhsflc2yeunhxwdh38rul0rq3dfhzzxgm5szjuvtqdha4t4p2q02ks0jgzrhjkrav70z9xlvq0plpcjkd5z3",
             ZcashAddress {
                 net: Network::Regtest,
-                kind: AddressKind::Unified(unified::Address(vec![unified::Receiver::Sapling([0; 43])])),
+                kind: AddressKind::Unified(unified::Address(vec![Receiver::Sapling([0; 43])])),
             },
         );
     }

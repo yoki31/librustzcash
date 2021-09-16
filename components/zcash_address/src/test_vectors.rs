@@ -1,13 +1,16 @@
 use std::iter;
 
 use crate::{
-    unified::{self, test_vectors::TEST_VECTORS, Receiver},
+    unified::{
+        self,
+        address::{self, Receiver},
+    },
     Network, ToAddress, ZcashAddress,
 };
 
 #[test]
 fn unified() {
-    for tv in TEST_VECTORS {
+    for tv in address::test_vectors::TEST_VECTORS {
         // Double-check test vectors match requirements:
         // - Only one of P2PKH and P2SH.
         assert!(tv.p2pkh_bytes.is_none() || tv.p2sh_bytes.is_none());
