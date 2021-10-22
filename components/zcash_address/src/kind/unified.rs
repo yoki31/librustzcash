@@ -13,23 +13,6 @@ pub(crate) mod ivk;
 
 pub(crate) use address::Address;
 
-/// The HRP for a Bech32m-encoded mainnet Unified Address.
-///
-/// Defined in [ZIP 316][zip-0316].
-///
-/// [zip-0316]: https://zips.z.cash/zip-0316
-pub(crate) const MAINNET: &str = "u";
-
-/// The HRP for a Bech32m-encoded testnet Unified Address.
-///
-/// Defined in [ZIP 316][zip-0316].
-///
-/// [zip-0316]: https://zips.z.cash/zip-0316
-pub(crate) const TESTNET: &str = "utest";
-
-/// The HRP for a Bech32m-encoded regtest Unified Address.
-pub(crate) const REGTEST: &str = "uregtest";
-
 const PADDING_LEN: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -165,8 +148,13 @@ use private::Receiver;
 
 /// Trait providing common encoding logic for Unified containers.
 pub trait Unified: private::Sealed + std::marker::Sized {
+    /// The HRP for a Bech32m-encoded mainnet Unified dontainer.
     const MAINNET: &'static str;
+
+    /// The HRP for a Bech32m-encoded testnet Unified dontainer.
     const TESTNET: &'static str;
+
+    /// The HRP for a Bech32m-encoded regtest Unified dontainer.
     const REGTEST: &'static str;
 
     fn from_bytes(hrp: &str, buf: &[u8]) -> Result<Self, ParseError> {

@@ -53,9 +53,9 @@ impl FromStr for ZcashAddress {
                     Vec::<u8>::from_base32(&data).map_err(|_| ParseError::InvalidEncoding)?;
 
                 let net = match hrp.as_str() {
-                    unified::MAINNET => Network::Main,
-                    unified::TESTNET => Network::Test,
-                    unified::REGTEST => Network::Regtest,
+                    Address::MAINNET => Network::Main,
+                    Address::TESTNET => Network::Test,
+                    Address::REGTEST => Network::Regtest,
                     // We will not define new Bech32m address encodings.
                     _ => {
                         return Err(ParseError::NotZcash);
@@ -152,9 +152,9 @@ impl fmt::Display for ZcashAddress {
             ),
             AddressKind::Unified(data) => {
                 let hrp = match self.net {
-                    Network::Main => unified::MAINNET,
-                    Network::Test => unified::TESTNET,
-                    Network::Regtest => unified::REGTEST,
+                    Network::Main => Address::MAINNET,
+                    Network::Test => Address::TESTNET,
+                    Network::Regtest => Address::REGTEST,
                 };
                 encode_bech32m(hrp, &data.to_bytes(hrp))
             }
