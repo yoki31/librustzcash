@@ -62,7 +62,7 @@ impl TryFrom<(u32, Vec<u8>)> for Ivk {
     fn try_from((typecode, data): (u32, Vec<u8>)) -> Result<Self, Self::Error> {
         match typecode.try_into()? {
             Typecode::P2pkh => data.try_into().map(Ivk::P2pkh),
-            Typecode::P2sh => unreachable!(),
+            Typecode::P2sh => Err(data),
             Typecode::Sapling => data.try_into().map(Ivk::Sapling),
             Typecode::Orchard => data.try_into().map(Ivk::Orchard),
             Typecode::Unknown(_) => Ok(Ivk::Unknown { typecode, data }),
