@@ -6,6 +6,8 @@ and this library adheres to Rust's notion of
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.3.0] - 2022-05-11
 ### Added
 - Support for multiple history tree versions:
   - `zcash_history::Version` trait.
@@ -14,6 +16,7 @@ and this library adheres to Rust's notion of
 - `zcash_history::Entry::new_leaf`
 
 ### Changed
+- MSRV is now 1.56.1.
 - `zcash_history::{Entry, IndexedNode, Tree}` now have a `Version` parameter.
 
 ### Removed

@@ -61,8 +61,17 @@ const ZFUTURE_VERSION_GROUP_ID: u32 = 0xFFFFFFFF;
 #[cfg(feature = "zfuture")]
 const ZFUTURE_TX_VERSION: u32 = 0x0000FFFF;
 
-#[derive(Clone, Copy, Debug, PartialOrd, Ord, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct TxId([u8; 32]);
+
+impl fmt::Debug for TxId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The (byte-flipped) hex string is more useful than the raw bytes, because we can
+        // look that up in RPC methods and block explorers.
+        let txid_str = self.to_string();
+        f.debug_tuple("TxId").field(&txid_str).finish()
+    }
+}
 
 impl fmt::Display for TxId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -239,6 +248,7 @@ pub trait Authorization {
     type TzeAuth: tze::Authorization;
 }
 
+#[derive(Debug)]
 pub struct Authorized;
 
 impl Authorization for Authorized {
@@ -282,6 +292,7 @@ impl PartialEq for Transaction {
     }
 }
 
+#[derive(Debug)]
 pub struct TransactionData<A: Authorization> {
     version: TxVersion,
     consensus_branch_id: BranchId,
@@ -330,6 +341,10 @@ impl<A: Authorization> TransactionData<A> {
         self.consensus_branch_id
     }
 
+    pub fn lock_time(&self) -> u32 {
+        self.lock_time
+    }
+
     pub fn expiry_height(&self) -> BlockHeight {
         self.expiry_height
     }
@@ -370,91 +385,67 @@ impl<A: Authorization> TransactionData<A> {
             digester.digest_tze(self.tze_bundle.as_ref()),
         )
     }
-}
 
-impl<A: Authorization> std::fmt::Debug for TransactionData<A> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(
-            f,
-            "TransactionData(
-                version = {:?},
-                consensus_branch_id = {:?},
-                lock_time = {:?},
-                expiry_height = {:?},
-                transparent_fields = {{{}}}
-                sprout = {{{}}},
-                sapling = {{{}}},
-                orchard = {{{}}},
-                tze = {{{}}}
-            )",
-            self.version,
-            self.consensus_branch_id,
-            self.lock_time,
-            self.expiry_height,
-            if let Some(b) = &self.transparent_bundle {
-                format!(
-                    "
-                    vin = {:?},
-                    vout = {:?},
-                    ",
-                    b.vin, b.vout
+    /// Maps the bundles from one type to another.
+    ///
+    /// This shouldn't be necessary for most use cases; it is provided for handling the
+    /// cross-FFI builder logic in `zcashd`.
+    pub fn map_bundles<B: Authorization>(
+        self,
+        f_transparent: impl FnOnce(
+            Option<transparent::Bundle<A::TransparentAuth>>,
+        ) -> Option<transparent::Bundle<B::TransparentAuth>>,
+        f_sapling: impl FnOnce(
+            Option<sapling::Bundle<A::SaplingAuth>>,
+        ) -> Option<sapling::Bundle<B::SaplingAuth>>,
+        f_orchard: impl FnOnce(
+            Option<orchard::bundle::Bundle<A::OrchardAuth, Amount>>,
+        ) -> Option<orchard::bundle::Bundle<B::OrchardAuth, Amount>>,
+        #[cfg(feature = "zfuture")] f_tze: impl FnOnce(
+            Option<tze::Bundle<A::TzeAuth>>,
+        ) -> Option<tze::Bundle<B::TzeAuth>>,
+    ) -> TransactionData<B> {
+        TransactionData {
+            version: self.version,
+            consensus_branch_id: self.consensus_branch_id,
+            lock_time: self.lock_time,
+            expiry_height: self.expiry_height,
+            transparent_bundle: f_transparent(self.transparent_bundle),
+            sprout_bundle: self.sprout_bundle,
+            sapling_bundle: f_sapling(self.sapling_bundle),
+            orchard_bundle: f_orchard(self.orchard_bundle),
+            #[cfg(feature = "zfuture")]
+            tze_bundle: f_tze(self.tze_bundle),
+        }
+    }
+
+    pub fn map_authorization<B: Authorization>(
+        self,
+        f_transparent: impl transparent::MapAuth<A::TransparentAuth, B::TransparentAuth>,
+        f_sapling: impl sapling::MapAuth<A::SaplingAuth, B::SaplingAuth>,
+        mut f_orchard: impl orchard_serialization::MapAuth<A::OrchardAuth, B::OrchardAuth>,
+        #[cfg(feature = "zfuture")] f_tze: impl tze::MapAuth<A::TzeAuth, B::TzeAuth>,
+    ) -> TransactionData<B> {
+        TransactionData {
+            version: self.version,
+            consensus_branch_id: self.consensus_branch_id,
+            lock_time: self.lock_time,
+            expiry_height: self.expiry_height,
+            transparent_bundle: self
+                .transparent_bundle
+                .map(|b| b.map_authorization(f_transparent)),
+            sprout_bundle: self.sprout_bundle,
+            sapling_bundle: self.sapling_bundle.map(|b| b.map_authorization(f_sapling)),
+            orchard_bundle: self.orchard_bundle.map(|b| {
+                b.map_authorization(
+                    &mut f_orchard,
+                    |f, _, s| f.map_spend_auth(s),
+                    |f, a| f.map_authorization(a),
                 )
-            } else {
-                "".to_string()
-            },
-            if let Some(b) = &self.sprout_bundle {
-                format!(
-                    "
-                    joinsplits = {:?},
-                    joinsplit_pubkey = {:?},
-                    ",
-                    b.joinsplits, b.joinsplit_pubkey
-                )
-            } else {
-                "".to_string()
-            },
-            if let Some(b) = &self.sapling_bundle {
-                format!(
-                    "
-                    value_balance = {:?},
-                    shielded_spends = {:?},
-                    shielded_outputs = {:?},
-                    binding_sig = {:?},
-                    ",
-                    b.value_balance, b.shielded_spends, b.shielded_outputs, b.authorization
-                )
-            } else {
-                "".to_string()
-            },
-            if let Some(b) = &self.orchard_bundle {
-                format!(
-                    "
-                    value_balance = {:?},
-                    actions = {:?},
-                    ",
-                    b.value_balance(),
-                    b.actions().len()
-                )
-            } else {
-                "".to_string()
-            },
-            {
-                #[cfg(feature = "zfuture")]
-                if let Some(b) = &self.tze_bundle {
-                    format!(
-                        "
-                    tze_inputs = {:?},
-                    tze_outputs = {:?},
-                    ",
-                        b.vin, b.vout
-                    )
-                } else {
-                    "".to_string()
-                }
-                #[cfg(not(feature = "zfuture"))]
-                ""
-            }
-        )
+            }),
+            #[cfg(feature = "zfuture")]
+            tze_bundle: self.tze_bundle.map(|b| b.map_authorization(f_tze)),
+        }
     }
 }
 
@@ -503,6 +494,10 @@ impl Transaction {
         );
 
         Transaction { txid, data }
+    }
+
+    pub fn into_data(self) -> TransactionData<Authorized> {
+        self.data
     }
 
     pub fn txid(&self) -> TxId {
@@ -922,22 +917,21 @@ impl Transaction {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TransparentDigests<A> {
-    pub prevout_digest: A,
+    pub prevouts_digest: A,
     pub sequence_digest: A,
     pub outputs_digest: A,
-    pub per_input_digest: Option<A>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TzeDigests<A> {
     pub inputs_digest: A,
     pub outputs_digest: A,
     pub per_input_digest: Option<A>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TxDigests<A> {
     pub header_digest: A,
     pub transparent_digests: Option<TransparentDigests<A>>,

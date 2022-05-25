@@ -738,7 +738,7 @@ mod test {
             let s_bits = s
                 .to_le_bits()
                 .iter()
-                .by_val()
+                .by_vals()
                 .take(jubjub::Fr::NUM_BITS as usize)
                 .enumerate()
                 .map(|(i, b)| {
@@ -789,7 +789,7 @@ mod test {
             let s_bits = s
                 .to_le_bits()
                 .iter()
-                .by_val()
+                .by_vals()
                 .take(jubjub::Fr::NUM_BITS as usize)
                 .enumerate()
                 .map(|(i, b)| {
@@ -855,6 +855,7 @@ mod test {
 
             assert!(cs.is_satisfied());
 
+            #[allow(clippy::branches_sharing_code)]
             if should_we_select {
                 assert_eq!(q.u.get_value().unwrap(), u0);
                 assert_eq!(q.v.get_value().unwrap(), v0);

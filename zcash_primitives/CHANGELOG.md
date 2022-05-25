@@ -6,6 +6,8 @@ and this library adheres to Rust's notion of
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.6.0] - 2022-05-11
 ### Added
 - `zcash_primitives::sapling::redjubjub::PublicKey::verify_with_zip216`, for
   controlling how RedJubjub signatures are validated. `PublicKey::verify` has
@@ -31,8 +33,8 @@ and this library adheres to Rust's notion of
   Orchard). This type makes it possible to encode a type-safe state machine
   for the application of authorizing data to a transaction; implementations of
   this trait represent different states of the authorization process.
-- New bundle types under the `zcash_primitives::transaction` submodules, one for 
-  each Zcash sub-protocol. These are now used instead of bare fields 
+- New bundle types under the `zcash_primitives::transaction` submodules, one for
+  each Zcash sub-protocol. These are now used instead of bare fields
   within the `TransactionData` type.
   - `components::sapling::Bundle` bundle of
     Sapling transaction elements. This new struct is parameterized by a
@@ -58,7 +60,7 @@ and this library adheres to Rust's notion of
   diversifier index space, whereas `sapling_diversifier` just attempts to use the
   provided diversifier index and returns `None` if it does not produce a valid
   diversifier.
-- `zcash_primitives::zip32::DiversifierKey::diversifier` has been renamed to 
+- `zcash_primitives::zip32::DiversifierKey::diversifier` has been renamed to
   `find_diversifier` and the `diversifier` method has new semantics.
   `find_diversifier` searches the diversifier index space to find a diversifier
   index which produces a valid diversifier, whereas `diversifier` just attempts
@@ -71,14 +73,46 @@ and this library adheres to Rust's notion of
   just attempts to create an address corresponding to the diversifier derived
   from the provided diversifier index and returns `None` if the provided index
   does not produce a valid diversifier.
+- `zcash_primitives::zip32::ExtendedSpendingKey.derive_internal` has been
+  added to facilitate the derivation of an internal (change) spending key.
+  This spending key can be used to spend change sent to an internal address
+  corresponding to the associated full viewing key as specified in
+  [ZIP 316](https://zips.z.cash/zip-0316#encoding-of-unified-full-incoming-viewing-keys)..
+- `zcash_primitives::zip32::ExtendedFullViewingKey.derive_internal` has been
+  added to facilitate the derivation of an internal (change) spending key.
+  This spending key can be used to spend change sent to an internal address
+  corresponding to the associated full viewing key as specified in
+  [ZIP 32](https://zips.z.cash/zip-0032#deriving-a-sapling-internal-spending-key).
+- `zcash_primitives::zip32::sapling_derive_internal_fvk` provides the
+  internal implementation of `ExtendedFullViewingKey.derive_internal` but does
+  not require a complete extended full viewing key, just the full viewing key
+  and the diversifier key. In the future, this function will likely be
+  refactored to become a member function of a new `DiversifiableFullViewingKey`
+  type, which represents the ability to derive IVKs, OVKs, and addresses, but
+  not child viewing keys.
+- A new module `zcash_primitives::legacy::keys` has been added under the
+  `transparent-inputs` feature flag to support types related to supporting
+  transparent components of unified addresses and derivation of OVKs for
+  shielding funds from the transparent pool.
+- A `zcash_primitives::transaction::components::amount::Amount::sum`
+  convenience method has been added to facilitate bounds-checked summation of
+  account values.
+- The `zcash_primitives::zip32::AccountId`, a type-safe wrapper for ZIP 32
+  account indices.
+- In `zcash_primitives::transaction::components::amount`:
+  - `impl Sum<&Amount> for Option<Amount>`
 
 ### Changed
-- MSRV is now 1.51.0.
-- Bumped dependencies to `ff 0.11`, `group 0.11`, `bls12_381 0.6`, `jubjub 0.8`.
+- MSRV is now 1.56.1.
+- Bumped dependencies to `ff 0.12`, `group 0.12`, `bls12_381 0.7`, `jubjub 0.9`,
+  `bitvec 1`.
 - The following modules and helpers have been moved into
   `zcash_primitives::sapling`:
   - `zcash_primitives::group_hash`
   - `zcash_primitives::keys`
+    - `zcash_primitives::sapling::keys::{prf_expand, prf_expand_vec, OutgoingViewingKey}`
+      have all been moved into to the this module to reflect the fact that they
+      are used outside of the Sapling protocol.
   - `zcash_primitives::pedersen_hash`
   - `zcash_primitives::primitives::*` (moved into `zcash_primitives::sapling`)
   - `zcash_primitives::prover`
@@ -120,6 +154,10 @@ and this library adheres to Rust's notion of
   `jubjub::ExtendedPoint` to `zcash_note_encryption::EphemeralKeyBytes`.
 - The `epk: jubjub::ExtendedPoint` field of `CompactOutputDescription ` has been
   replaced by `ephemeral_key: zcash_note_encryption::EphemeralKeyBytes`.
+- The `zcash_primitives::transaction::Builder::add_sapling_output` method
+  now takes its `MemoBytes` argument as a required field rather than an
+  optional one. If the empty memo is desired, use
+  `MemoBytes::from(Memo::Empty)` explicitly.
 
 ## [0.5.0] - 2021-03-26
 ### Added

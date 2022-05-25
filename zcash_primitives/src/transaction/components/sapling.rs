@@ -1,9 +1,13 @@
 use core::fmt::Debug;
+use std::convert::TryInto;
+
 use ff::PrimeField;
 use group::GroupEncoding;
 use std::io::{self, Read, Write};
 
-use zcash_note_encryption::{EphemeralKeyBytes, ShieldedOutput, COMPACT_NOTE_SIZE};
+use zcash_note_encryption::{
+    EphemeralKeyBytes, ShieldedOutput, COMPACT_NOTE_SIZE, ENC_CIPHERTEXT_SIZE,
+};
 
 use crate::{
     consensus,
@@ -43,12 +47,51 @@ impl Authorization for Authorized {
     type AuthSig = redjubjub::Signature;
 }
 
+pub trait MapAuth<A: Authorization, B: Authorization> {
+    fn map_proof(&self, p: A::Proof) -> B::Proof;
+    fn map_auth_sig(&self, s: A::AuthSig) -> B::AuthSig;
+    fn map_authorization(&self, a: A) -> B;
+}
+
 #[derive(Debug, Clone)]
 pub struct Bundle<A: Authorization> {
     pub shielded_spends: Vec<SpendDescription<A>>,
     pub shielded_outputs: Vec<OutputDescription<A::Proof>>,
     pub value_balance: Amount,
     pub authorization: A,
+}
+
+impl<A: Authorization> Bundle<A> {
+    pub fn map_authorization<B: Authorization, F: MapAuth<A, B>>(self, f: F) -> Bundle<B> {
+        Bundle {
+            shielded_spends: self
+                .shielded_spends
+                .into_iter()
+                .map(|d| SpendDescription {
+                    cv: d.cv,
+                    anchor: d.anchor,
+                    nullifier: d.nullifier,
+                    rk: d.rk,
+                    zkproof: f.map_proof(d.zkproof),
+                    spend_auth_sig: f.map_auth_sig(d.spend_auth_sig),
+                })
+                .collect(),
+            shielded_outputs: self
+                .shielded_outputs
+                .into_iter()
+                .map(|o| OutputDescription {
+                    cv: o.cv,
+                    cmu: o.cmu,
+                    ephemeral_key: o.ephemeral_key,
+                    enc_ciphertext: o.enc_ciphertext,
+                    out_ciphertext: o.out_ciphertext,
+                    zkproof: f.map_proof(o.zkproof),
+                })
+                .collect(),
+            value_balance: self.value_balance,
+            authorization: f.map_authorization(self.authorization),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -219,7 +262,9 @@ pub struct OutputDescription<Proof> {
     pub zkproof: Proof,
 }
 
-impl<P: consensus::Parameters, A> ShieldedOutput<SaplingDomain<P>> for OutputDescription<A> {
+impl<P: consensus::Parameters, A> ShieldedOutput<SaplingDomain<P>, ENC_CIPHERTEXT_SIZE>
+    for OutputDescription<A>
+{
     fn ephemeral_key(&self) -> EphemeralKeyBytes {
         self.ephemeral_key.clone()
     }
@@ -228,7 +273,7 @@ impl<P: consensus::Parameters, A> ShieldedOutput<SaplingDomain<P>> for OutputDes
         self.cmu.to_repr()
     }
 
-    fn enc_ciphertext(&self) -> &[u8] {
+    fn enc_ciphertext(&self) -> &[u8; ENC_CIPHERTEXT_SIZE] {
         &self.enc_ciphertext
     }
 }
@@ -347,7 +392,7 @@ impl OutputDescriptionV5 {
 pub struct CompactOutputDescription {
     pub ephemeral_key: EphemeralKeyBytes,
     pub cmu: bls12_381::Scalar,
-    pub enc_ciphertext: Vec<u8>,
+    pub enc_ciphertext: [u8; COMPACT_NOTE_SIZE],
 }
 
 impl<A> From<OutputDescription<A>> for CompactOutputDescription {
@@ -355,12 +400,14 @@ impl<A> From<OutputDescription<A>> for CompactOutputDescription {
         CompactOutputDescription {
             ephemeral_key: out.ephemeral_key,
             cmu: out.cmu,
-            enc_ciphertext: out.enc_ciphertext[..COMPACT_NOTE_SIZE].to_vec(),
+            enc_ciphertext: out.enc_ciphertext[..COMPACT_NOTE_SIZE].try_into().unwrap(),
         }
     }
 }
 
-impl<P: consensus::Parameters> ShieldedOutput<SaplingDomain<P>> for CompactOutputDescription {
+impl<P: consensus::Parameters> ShieldedOutput<SaplingDomain<P>, COMPACT_NOTE_SIZE>
+    for CompactOutputDescription
+{
     fn ephemeral_key(&self) -> EphemeralKeyBytes {
         self.ephemeral_key.clone()
     }
@@ -369,7 +416,7 @@ impl<P: consensus::Parameters> ShieldedOutput<SaplingDomain<P>> for CompactOutpu
         self.cmu.to_repr()
     }
 
-    fn enc_ciphertext(&self) -> &[u8] {
+    fn enc_ciphertext(&self) -> &[u8; COMPACT_NOTE_SIZE] {
         &self.enc_ciphertext
     }
 }

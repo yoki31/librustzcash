@@ -5,11 +5,11 @@ use std::io::{self, Read, Write};
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use nonempty::NonEmpty;
 use orchard::{
-    bundle::{Action, Authorization, Authorized, Flags},
+    bundle::{Authorization, Authorized, Flags},
     note::{ExtractedNoteCommitment, Nullifier, TransmittedNoteCiphertext},
     primitives::redpallas::{self, SigType, Signature, SpendAuth, VerificationKey},
     value::ValueCommitment,
-    Anchor,
+    Action, Anchor,
 };
 use zcash_encoding::{Array, CompactSize, Vector};
 
@@ -26,6 +26,11 @@ pub struct Unauthorized;
 
 impl Authorization for Unauthorized {
     type SpendAuth = ();
+}
+
+pub trait MapAuth<A: Authorization, B: Authorization> {
+    fn map_spend_auth(&self, s: A::SpendAuth) -> B::SpendAuth;
+    fn map_authorization(&self, a: A) -> B;
 }
 
 /// Reads an [`orchard::Bundle`] from a v5 transaction format.
@@ -151,7 +156,12 @@ pub fn read_action_without_auth<R: Read>(mut reader: R) -> io::Result<Action<()>
 pub fn read_flags<R: Read>(mut reader: R) -> io::Result<Flags> {
     let mut byte = [0u8; 1];
     reader.read_exact(&mut byte)?;
-    Flags::from_byte(byte[0])
+    Flags::from_byte(byte[0]).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid Orchard flags".to_owned(),
+        )
+    })
 }
 
 pub fn read_anchor<R: Read>(mut reader: R) -> io::Result<Anchor> {
@@ -236,11 +246,11 @@ pub fn write_action_without_auth<W: Write>(
     mut writer: W,
     act: &Action<<Authorized as Authorization>::SpendAuth>,
 ) -> io::Result<()> {
-    write_value_commitment(&mut writer, &act.cv_net())?;
-    write_nullifier(&mut writer, &act.nullifier())?;
-    write_verification_key(&mut writer, &act.rk())?;
-    write_cmx(&mut writer, &act.cmx())?;
-    write_note_ciphertext(&mut writer, &act.encrypted_note())?;
+    write_value_commitment(&mut writer, act.cv_net())?;
+    write_nullifier(&mut writer, act.nullifier())?;
+    write_verification_key(&mut writer, act.rk())?;
+    write_cmx(&mut writer, act.cmx())?;
+    write_note_ciphertext(&mut writer, act.encrypted_note())?;
     Ok(())
 }
 

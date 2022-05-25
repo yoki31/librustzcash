@@ -23,13 +23,13 @@ use subtle::{Choice, ConstantTimeEq};
 
 use crate::{
     constants::{self, SPENDING_KEY_GENERATOR},
+    keys::prf_expand,
     merkle_tree::{HashSer, Hashable},
     transaction::components::amount::MAX_MONEY,
 };
 
 use self::{
     group_hash::group_hash,
-    keys::prf_expand,
     pedersen_hash::{pedersen_hash, Personalization},
     redjubjub::{PrivateKey, PublicKey, Signature},
 };
@@ -562,7 +562,7 @@ pub mod testing {
         ) -> Note {
             Note {
                 value: value.into(),
-                g_d: addr.g_d().unwrap(), // this unwrap is safe because arb_payment_address always generates an address witha valid g_d
+                g_d: addr.g_d().unwrap(), // this unwrap is safe because arb_payment_address always generates an address with a valid g_d
                 pk_d: *addr.pk_d(),
                 rseed
             }

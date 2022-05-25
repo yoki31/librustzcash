@@ -10,7 +10,7 @@ const PHGR_PROOF_SIZE: usize = 33 + 33 + 65 + 33 + 33 + 33 + 33 + 33;
 const ZC_NUM_JS_INPUTS: usize = 2;
 const ZC_NUM_JS_OUTPUTS: usize = 2;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Bundle {
     pub joinsplits: Vec<JsDescription>,
     pub joinsplit_pubkey: [u8; 32],
@@ -18,9 +18,9 @@ pub struct Bundle {
 }
 
 #[derive(Clone)]
+#[allow(clippy::upper_case_acronyms)]
 pub(crate) enum SproutProof {
     Groth([u8; GROTH_PROOF_SIZE]),
-    #[allow(clippy::upper_case_acronyms)]
     PHGR([u8; PHGR_PROOF_SIZE]),
 }
 

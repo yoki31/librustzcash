@@ -2,26 +2,27 @@
 
 use std::fmt;
 
-#[cfg(feature = "transparent-inputs")]
-use blake2b_simd::Hash as Blake2bHash;
-
 use crate::{
-    legacy::TransparentAddress,
-    transaction::components::{
-        amount::Amount,
-        transparent::{self, Authorization, Authorized, Bundle, TxIn, TxOut},
+    legacy::{Script, TransparentAddress},
+    transaction::{
+        components::{
+            amount::Amount,
+            transparent::{self, Authorization, Authorized, Bundle, TxIn, TxOut},
+        },
+        sighash::TransparentAuthorizingContext,
     },
 };
 
 #[cfg(feature = "transparent-inputs")]
-use crate::{
-    legacy::Script,
-    transaction::{
+use {
+    crate::transaction::{
         self as tx,
         components::OutPoint,
         sighash::{signature_hash, SignableInput, SIGHASH_ALL},
         TransactionData, TxDigests,
     },
+    blake2b_simd::Hash as Blake2bHash,
+    ripemd::Digest,
 };
 
 #[derive(Debug, PartialEq)]
@@ -96,7 +97,7 @@ impl TransparentBuilder {
         let pubkey = secp256k1::PublicKey::from_secret_key(&self.secp, &sk).serialize();
         match coin.script_pubkey.address() {
             Some(TransparentAddress::PublicKey(hash)) => {
-                use ripemd160::Ripemd160;
+                use ripemd::Ripemd160;
                 use sha2::{Digest, Sha256};
 
                 if hash[..] != Ripemd160::digest(&Sha256::digest(&pubkey))[..] {
@@ -188,6 +189,32 @@ impl TxIn<Unauthorized> {
     }
 }
 
+#[cfg(not(feature = "transparent-inputs"))]
+impl TransparentAuthorizingContext for Unauthorized {
+    fn input_amounts(&self) -> Vec<Amount> {
+        vec![]
+    }
+
+    fn input_scriptpubkeys(&self) -> Vec<Script> {
+        vec![]
+    }
+}
+
+#[cfg(feature = "transparent-inputs")]
+impl TransparentAuthorizingContext for Unauthorized {
+    fn input_amounts(&self) -> Vec<Amount> {
+        return self.inputs.iter().map(|txin| txin.coin.value).collect();
+    }
+
+    fn input_scriptpubkeys(&self) -> Vec<Script> {
+        return self
+            .inputs
+            .iter()
+            .map(|txin| txin.coin.script_pubkey.clone())
+            .collect();
+    }
+}
+
 impl Bundle<Unauthorized> {
     pub fn apply_signatures(
         self,
@@ -195,21 +222,26 @@ impl Bundle<Unauthorized> {
         #[cfg(feature = "transparent-inputs")] txid_parts_cache: &TxDigests<Blake2bHash>,
     ) -> Bundle<Authorized> {
         #[cfg(feature = "transparent-inputs")]
-        let script_sigs: Vec<Script> = self
+        let script_sigs = self
             .authorization
             .inputs
             .iter()
             .enumerate()
-            .map(|(i, info)| {
+            .map(|(index, info)| {
                 let sighash = signature_hash(
                     mtx,
-                    SIGHASH_ALL,
-                    &SignableInput::transparent(i, &info.coin.script_pubkey, info.coin.value),
+                    &SignableInput::Transparent {
+                        hash_type: SIGHASH_ALL,
+                        index,
+                        script_code: &info.coin.script_pubkey, // for p2pkh, always the same as script_pubkey
+                        script_pubkey: &info.coin.script_pubkey,
+                        value: info.coin.value,
+                    },
                     txid_parts_cache,
                 );
 
                 let msg = secp256k1::Message::from_slice(sighash.as_ref()).expect("32 bytes");
-                let sig = self.authorization.secp.sign(&msg, &info.sk);
+                let sig = self.authorization.secp.sign_ecdsa(&msg, &info.sk);
 
                 // Signature has to have "SIGHASH_ALL" appended to it
                 let mut sig_bytes: Vec<u8> = sig.serialize_der()[..].to_vec();
@@ -217,19 +249,18 @@ impl Bundle<Unauthorized> {
 
                 // P2PKH scriptSig
                 Script::default() << &sig_bytes[..] << &info.pubkey[..]
-            })
-            .collect();
+            });
 
         #[cfg(not(feature = "transparent-inputs"))]
-        let script_sigs = vec![];
+        let script_sigs = std::iter::empty::<Script>();
 
         transparent::Bundle {
             vin: self
                 .vin
-                .into_iter()
-                .zip(script_sigs.into_iter())
+                .iter()
+                .zip(script_sigs)
                 .map(|(txin, sig)| TxIn {
-                    prevout: txin.prevout,
+                    prevout: txin.prevout.clone(),
                     script_sig: sig,
                     sequence: txin.sequence,
                 })

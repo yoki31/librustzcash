@@ -4,7 +4,7 @@ use ff::PrimeField;
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use subtle::{ConditionallySelectable, ConstantTimeEq, CtOption};
-use zcash_note_encryption::ShieldedOutput;
+use zcash_note_encryption::{ShieldedOutput, COMPACT_NOTE_SIZE};
 use zcash_primitives::{
     consensus::{self, BlockHeight},
     merkle_tree::{CommitmentTree, IncrementalWitness},
@@ -13,13 +13,13 @@ use zcash_primitives::{
         Node, Note, Nullifier, PaymentAddress, SaplingIvk,
     },
     transaction::components::sapling::CompactOutputDescription,
-    zip32::ExtendedFullViewingKey,
+    zip32::{AccountId, ExtendedFullViewingKey},
 };
 
-use crate::proto::compact_formats::{CompactBlock, CompactOutput};
-use crate::wallet::{AccountId, WalletShieldedOutput, WalletShieldedSpend, WalletTx};
+use crate::proto::compact_formats::{CompactBlock, CompactSaplingOutput};
+use crate::wallet::{WalletShieldedOutput, WalletShieldedSpend, WalletTx};
 
-/// Scans a [`CompactOutput`] with a set of [`ScanningKey`]s.
+/// Scans a [`CompactSaplingOutput`] with a set of [`ScanningKey`]s.
 ///
 /// Returns a [`WalletShieldedOutput`] and corresponding [`IncrementalWitness`] if this
 /// output belongs to any of the given [`ScanningKey`]s.
@@ -33,7 +33,7 @@ fn scan_output<P: consensus::Parameters, K: ScanningKey>(
     params: &P,
     height: BlockHeight,
     index: usize,
-    output: CompactOutput,
+    output: CompactSaplingOutput,
     vks: &[(&AccountId, &K)],
     spent_from_accounts: &HashSet<AccountId>,
     tree: &mut CommitmentTree<Node>,
@@ -68,7 +68,7 @@ fn scan_output<P: consensus::Parameters, K: ScanningKey>(
         // - Change created by spending fractions of notes.
         // - Notes created by consolidation transactions.
         // - Notes sent from one account to itself.
-        let is_change = spent_from_accounts.contains(&account);
+        let is_change = spent_from_accounts.contains(account);
 
         let witness = IncrementalWitness::from_tree(tree);
         let nf = vk.nf(&note, &witness);
@@ -90,7 +90,7 @@ fn scan_output<P: consensus::Parameters, K: ScanningKey>(
 }
 
 /// A key that can be used to perform trial decryption and nullifier
-/// computation for a Sapling [`CompactOutput`]
+/// computation for a Sapling [`CompactSaplingOutput`]
 ///
 /// The purpose of this trait is to enable [`scan_block`]
 /// and related methods to be used with either incoming viewing keys
@@ -100,7 +100,7 @@ fn scan_output<P: consensus::Parameters, K: ScanningKey>(
 /// will be returned; in the case of a full viewing key, the
 /// nullifier for the note can also be obtained.
 ///
-/// [`CompactOutput`]: crate::proto::compact_formats::CompactOutput
+/// [`CompactSaplingOutput`]: crate::proto::compact_formats::CompactSaplingOutput
 /// [`scan_block`]: crate::welding_rig::scan_block
 pub trait ScanningKey {
     /// The type of nullifier extracted when a note is successfully
@@ -109,7 +109,10 @@ pub trait ScanningKey {
 
     /// Attempts to decrypt a Sapling note and payment address
     /// from the specified ciphertext using this scanning key.
-    fn try_decryption<P: consensus::Parameters, Output: ShieldedOutput<SaplingDomain<P>>>(
+    fn try_decryption<
+        P: consensus::Parameters,
+        Output: ShieldedOutput<SaplingDomain<P>, COMPACT_NOTE_SIZE>,
+    >(
         &self,
         params: &P,
         height: BlockHeight,
@@ -131,7 +134,10 @@ pub trait ScanningKey {
 impl ScanningKey for ExtendedFullViewingKey {
     type Nf = Nullifier;
 
-    fn try_decryption<P: consensus::Parameters, Output: ShieldedOutput<SaplingDomain<P>>>(
+    fn try_decryption<
+        P: consensus::Parameters,
+        Output: ShieldedOutput<SaplingDomain<P>, COMPACT_NOTE_SIZE>,
+    >(
         &self,
         params: &P,
         height: BlockHeight,
@@ -152,7 +158,10 @@ impl ScanningKey for ExtendedFullViewingKey {
 impl ScanningKey for SaplingIvk {
     type Nf = ();
 
-    fn try_decryption<P: consensus::Parameters, Output: ShieldedOutput<SaplingDomain<P>>>(
+    fn try_decryption<
+        P: consensus::Parameters,
+        Output: ShieldedOutput<SaplingDomain<P>, COMPACT_NOTE_SIZE>,
+    >(
         &self,
         params: &P,
         height: BlockHeight,
@@ -220,7 +229,7 @@ pub fn scan_block<P: consensus::Parameters, K: ScanningKey>(
                     .iter()
                     .map(|&(account, nf)| CtOption::new(account, nf.ct_eq(&spend_nf)))
                     .fold(
-                        CtOption::new(AccountId::default(), 0.into()),
+                        CtOption::new(AccountId::from(0), 0.into()),
                         |first, next| CtOption::conditional_select(&next, &first, first.is_some()),
                     )
                     .map(|account| WalletShieldedSpend {
@@ -308,12 +317,13 @@ mod tests {
             SaplingIvk,
         },
         transaction::components::Amount,
-        zip32::{ExtendedFullViewingKey, ExtendedSpendingKey},
+        zip32::{AccountId, ExtendedFullViewingKey, ExtendedSpendingKey},
     };
 
     use super::scan_block;
-    use crate::proto::compact_formats::{CompactBlock, CompactOutput, CompactSpend, CompactTx};
-    use crate::wallet::AccountId;
+    use crate::proto::compact_formats::{
+        CompactBlock, CompactSaplingOutput, CompactSaplingSpend, CompactTx,
+    };
 
     fn random_compact_tx(mut rng: impl RngCore) -> CompactTx {
         let fake_nf = {
@@ -332,11 +342,11 @@ mod tests {
             let fake_epk = SPENDING_KEY_GENERATOR * fake_esk;
             fake_epk.to_bytes().to_vec()
         };
-        let mut cspend = CompactSpend::new();
+        let mut cspend = CompactSaplingSpend::new();
         cspend.set_nf(fake_nf);
-        let mut cout = CompactOutput::new();
+        let mut cout = CompactSaplingOutput::new();
         cout.set_cmu(fake_cmu);
-        cout.set_epk(fake_epk);
+        cout.set_ephemeralKey(fake_epk);
         cout.set_ciphertext(vec![0; 52]);
         let mut ctx = CompactTx::new();
         let mut txid = vec![0; 32];
@@ -390,11 +400,11 @@ mod tests {
             cb.vtx.push(tx);
         }
 
-        let mut cspend = CompactSpend::new();
+        let mut cspend = CompactSaplingSpend::new();
         cspend.set_nf(nf.0.to_vec());
-        let mut cout = CompactOutput::new();
+        let mut cout = CompactSaplingOutput::new();
         cout.set_cmu(cmu);
-        cout.set_epk(epk);
+        cout.set_ephemeralKey(epk);
         cout.set_ciphertext(enc_ciphertext.as_ref()[..52].to_vec());
         let mut ctx = CompactTx::new();
         let mut txid = vec![0; 32];
@@ -433,7 +443,7 @@ mod tests {
         let txs = scan_block(
             &Network::TestNetwork,
             cb,
-            &[(&AccountId(0), &extfvk)],
+            &[(&AccountId::from(0), &extfvk)],
             &[],
             &mut tree,
             &mut [],
@@ -447,7 +457,7 @@ mod tests {
         assert_eq!(tx.shielded_spends.len(), 0);
         assert_eq!(tx.shielded_outputs.len(), 1);
         assert_eq!(tx.shielded_outputs[0].index, 0);
-        assert_eq!(tx.shielded_outputs[0].account, AccountId(0));
+        assert_eq!(tx.shielded_outputs[0].account, AccountId::from(0));
         assert_eq!(tx.shielded_outputs[0].note.value, 5);
 
         // Check that the witness root matches
@@ -472,7 +482,7 @@ mod tests {
         let txs = scan_block(
             &Network::TestNetwork,
             cb,
-            &[(&AccountId(0), &extfvk)],
+            &[(&AccountId::from(0), &extfvk)],
             &[],
             &mut tree,
             &mut [],
@@ -486,7 +496,7 @@ mod tests {
         assert_eq!(tx.shielded_spends.len(), 0);
         assert_eq!(tx.shielded_outputs.len(), 1);
         assert_eq!(tx.shielded_outputs[0].index, 0);
-        assert_eq!(tx.shielded_outputs[0].account, AccountId(0));
+        assert_eq!(tx.shielded_outputs[0].account, AccountId::from(0));
         assert_eq!(tx.shielded_outputs[0].note.value, 5);
 
         // Check that the witness root matches
@@ -498,7 +508,7 @@ mod tests {
         let extsk = ExtendedSpendingKey::master(&[]);
         let extfvk = ExtendedFullViewingKey::from(&extsk);
         let nf = Nullifier([7; 32]);
-        let account = AccountId(12);
+        let account = AccountId::from(12);
 
         let cb = fake_compact_block(1u32.into(), nf, extfvk, Amount::from_u64(5).unwrap(), false);
         assert_eq!(cb.vtx.len(), 2);

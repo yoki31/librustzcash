@@ -114,6 +114,14 @@ impl Amount {
     pub const fn is_negative(self) -> bool {
         self.0.is_negative()
     }
+
+    pub fn sum<I: IntoIterator<Item = Amount>>(values: I) -> Option<Amount> {
+        let mut result = Amount::zero();
+        for value in values {
+            result = (result + value)?;
+        }
+        Some(result)
+    }
 }
 
 impl TryFrom<i64> for Amount {
@@ -192,17 +200,17 @@ impl Sum<Amount> for Option<Amount> {
     }
 }
 
+impl<'a> Sum<&'a Amount> for Option<Amount> {
+    fn sum<I: Iterator<Item = &'a Amount>>(iter: I) -> Self {
+        iter.fold(Some(Amount::zero()), |acc, a| acc? + *a)
+    }
+}
+
 impl Neg for Amount {
     type Output = Self;
 
     fn neg(self) -> Self {
         Amount(-self.0)
-    }
-}
-
-impl From<Amount> for orchard::ValueSum {
-    fn from(v: Amount) -> Self {
-        orchard::ValueSum::from_raw(v.0)
     }
 }
 
